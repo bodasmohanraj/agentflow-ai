@@ -68,3 +68,28 @@ class ApprovalRequest(Base):
     status = Column(String, default="pending")
     client_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Strategy(Base):
+    __tablename__ = "strategies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    executive_summary = Column(Text, nullable=True)
+    business_analysis = Column(Text, nullable=True)
+    target_audience_personas = Column(Text, nullable=True)
+    competitor_positioning = Column(Text, nullable=True)
+    brand_positioning = Column(Text, nullable=True)
+    marketing_objectives = Column(Text, nullable=True)
+    recommended_channels = Column(Text, nullable=True)
+    content_pillars = Column(Text, nullable=True)
+    campaign_ideas = Column(Text, nullable=True)
+    kpis_and_metrics = Column(JSON, nullable=True)
+    thirty_day_action_plan = Column(Text, nullable=True)
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship
+    client = relationship("Client", back_populates="strategies")
+
+# Relationship to strategies
+strategies = relationship("Strategy", order_by="Strategy.id", back_populates="client")
