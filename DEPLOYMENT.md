@@ -1,215 +1,127 @@
-# AgentFlow AI — Deployment Guide
+# AgentFlow AI deployment
 
-## Overview
-AgentFlow AI is an autonomous AI-powered digital agency platform built with:
-- **Frontend**: Next.js 14 with Pages Router, TypeScript, Tailwind CSS
-- **Backend**: FastAPI with Python, SQLAlchemy ORM, JWT authentication
-- **Database**: SQLite (development) / PostgreSQL (production)
-- **LLM**: FreeLLMAPI (OpenAI-compatible) provider abstraction
-- **Agent Orchestration**: LangGraph StateGraph with Supervisor Agent
+This project deploys the existing Next.js frontend to Vercel and the FastAPI
+backend to Render. PostgreSQL is supplied separately as a managed database.
+This guide prepares the application; it does not create or deploy external
+services.
 
-## Render Deployment
+## Render backend
 
-### Prerequisites
-- Render account
-- Managed PostgreSQL database
-- GitHub repository connected
+The root-level `render.yaml` describes one Python web service. In Render,
+select the repository Blueprint and set the environment variables listed
+below. The service uses:
 
-### Setup Steps
+- Build: `pip install -r backend/requirements.txt`
+- Start: `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT`
+- Health check: `/health`
 
-1. **Backend Service**
-   - Root Directory: `/`
-   - Build Command: `pip install -r backend/requirements.txt`
-   - Start Command: `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT`
-   - Node Version: `Node.js` (for frontend)
+`/health` reports application process health only. It deliberately does not
+claim that the database or AI provider is reachable.
 
-2. **Frontend Service**
-   - Root Directory: `/frontend`
-   - Build Command: `npm run build`
-   - Publish Directory: `.next`
-   - Node Version: `18.x`
+## PostgreSQL and migrations
 
-3. **Environment Variables**
+Set `DATABASE_URL` to the managed PostgreSQL connection URL in the Render
+service environment. Both `postgresql://` and legacy `postgres://` URLs are
+accepted by the backend. PostgreSQL connectivity has not been validated until
+the service is configured with a real reachable PostgreSQL instance.
 
-   **Backend (.env file in Render dashboard):**
-   ```
-   PROJECT_NAME=AgentFlow AI
-   SECRET_KEY=your-secret-key-change-this-in-production
-   ALGORITHM=HS256
-   ACCESS_TOKEN_EXPIRE_MINUTES=604800
-   
-   DATABASE_URL=postgresql://user:password@db.host:5432/agentflow_db
-   
-   # FreeLLMAPI Configuration
-   FREELLMAPI_BASE_URL=https://your-freellmapi-endpoint.com
-   FREELLMAPI_API_KEY=your-freellmapi-key
-   FREELLMAPI_MODEL=gpt-3.5-turbo
-   FREELLMAPI_TEMPERATURE=0.7
-   FREELLMAPI_MAX_TOKENS=1000
-   
-   # CORS Configuration
-   CORS_ORIGINS=https://your-vercel-app.vercel.app,http://localhost:3001
-   ```
+From the repository root, install the backend dependencies and apply pending
+migrations:
 
-   **Frontend (.env.example):**
-   ```
-   NEXT_PUBLIC_API_URL=http://localhost:8000
-   NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
-   
-   # Analytics Configuration
-   NEXT_PUBLIC_ANALYTICS_ENABLED=true
-   ```
-
-4. **Health Check Endpoint**
-   - URL: `https://your-service.onrender.com/health`
-   - Expected: `{"status": "healthy"}` or HTTP 200
-
-5. **Database Migration**
-   - Run: `alembic upgrade head` after deploying backend
-   - Ensure PostgreSQL managed database is configured before running migrations
-
-6. **CORS Configuration**
-   - Add allowed origins to backend `ALLOWED_ORIGINS` environment variable
-   - Include both frontend and any API gateway URLs
-
-7. **Rollback Procedure**
-   - Use Render dashboard to revert to previous deployment
-   - Or redeploy previous commit from GitHub
-   - Database backups should be manually maintained
-
-## Vercel Deployment
-
-### Frontend Configuration
-
-1. **vercel.json** (create in frontend root):
-   ```json
-   {
-     "build": {
-       "command": "npm run build",
-       "outputDirectory": ".next"
-     },
-     "routes": {
-       "/api/(.*)": "http://localhost:8000/api/$1"
-     }
-   }
-   ```
-
-2. **Environment Variables** (in Vercel dashboard):
-   ```
-   NEXT_PUBLIC_API_URL=https://your-backend.onrender.com
-   NEXT_PUBLIC_WS_URL=wss://your-backend.onrender.com/ws
-   
-   # FreeLLMAPI (if needed for client-side features)
-   # FREELLMAPI_BASE_URL=
-   # FREELLMAPI_API_KEY=
-   ```
-
-3. **Output**: `npm run build` produces `.next/` directory
-
-## Local Development
-
-### Backend
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # Edit with your credentials
-uvicorn app.main:app --reload
-# Server runs on http://localhost:8000
+```sh
+python -m pip install -r backend/requirements.txt
+alembic -c alembic.ini upgrade head
 ```
 
-### Frontend
-```bash
-cd frontend
-npm install
-cp .env.example .env  # Edit with your credentials
-npm run dev
-# Server runs on http://localhost:3001
+Run the migration command as a release/pre-deploy step or once against the
+configured database before sending application traffic. The initial migration
+creates tables missing from the current SQLAlchemy metadata and leaves existing
+tables and rows intact. It records the baseline in `alembic_version`; its
+downgrade is intentionally a no-op because a baseline may adopt tables that
+existed before Alembic. Back up a managed database using its provider's backup
+facility before applying schema changes.
+
+To inspect the configured migration history without changing the database:
+
+```sh
+alembic -c alembic.ini history
+alembic -c alembic.ini heads
 ```
 
-### Database Initialization
-```bash
-# Create tables
-alembic upgrade head
+## Vercel frontend
 
-# Or with SQLite directly
-cd backend
-python -c "from backend.app.models.models import Base; Base.metadata.create_all(bind=engine)"
+Set the Vercel project root to `frontend` and use the standard Next.js build
+command `npm run build`. Configure this public variable:
+
+- `NEXT_PUBLIC_API_URL`: backend origin, such as `https://<render-service>.onrender.com`,
+  or the full API prefix ending in `/api/v1`. The frontend adds `/api/v1` when
+  only an origin is supplied.
+
+Do not put backend secrets or the FreeLLMAPI key in Vercel variables prefixed
+with `NEXT_PUBLIC_`.
+
+## Backend environment variables
+
+Set these in Render's service environment. Do not commit actual values.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `ENVIRONMENT` | Yes | Set to `production`; disables the development CORS defaults. |
+| `WORKFLOW_AI_MODE` | Yes | Set to `live` in production. The `mock` mode is for explicit development use only. |
+| `SECRET_KEY` | Yes | Private JWT signing key. Supply a strong generated value in Render. |
+| `DATABASE_URL` | Yes | Managed PostgreSQL connection URL. |
+| `CORS_ORIGINS` | Yes | Comma-separated exact frontend origin(s), e.g. `https://<your-vercel-domain>`. |
+| `FREELLMAPI_BASE_URL` | For provider use | FreeLLMAPI OpenAI-compatible base URL, with or without `/v1`. |
+| `FREELLMAPI_API_KEY` | For provider use | Private provider API key. |
+| `FREELLMAPI_MODEL` | Optional | Provider model; defaults to `gpt-3.5-turbo`. |
+| `FREELLMAPI_TEMPERATURE` | Optional | Provider sampling temperature; defaults to `0.7`. |
+| `FREELLMAPI_MAX_TOKENS` | Optional | Provider output token limit; defaults to `1000`. |
+| `PROJECT_NAME` | Optional | API title. |
+| `API_V1_STR` | Optional | API prefix; defaults to `/api/v1`. |
+| `ALGORITHM` | Optional | JWT algorithm; defaults to `HS256`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Optional | JWT lifetime in minutes; defaults to seven days. |
+
+In development, when `CORS_ORIGINS` is empty, localhost origins on ports 3000
+and 3001 are allowed. In production, no origins are implicitly allowed; set
+`CORS_ORIGINS` to the exact deployed frontend origin(s). Wildcard origins are
+not configured by the application.
+
+## Local run
+
+Run commands from the repository root so Python can import `backend.app`:
+
+```sh
+python -m pip install -r backend/requirements.txt
+uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-## API Endpoints
+Supply local settings through environment variables or a local `.env` file.
+The checked-in `.env.example` documents development settings; never replace an
+existing `.env` containing local credentials or data.
 
-### Authentication
-- `POST /api/v1/auth/login` - Login with credentials
-- `GET /api/v1/auth/me` - Get current user info
-- `POST /api/v1/auth/logout` - Logout and clear token
+## Deployment verification
 
-### Client Management
-- `GET /api/v1/agency/clients` - List clients (requires auth)
-- `POST /api/v1/agency/clients` - Create client (requires auth)
-- `GET /api/v1/agency/clients/{id}` - Get client by ID
+After configuring services:
 
-### Strategies
-- `POST /api/v1/agency/strategies/generate` - Generate strategy for client
-- `GET /api/v1/agency/strategies/` - List strategies (requires auth)
-- `GET /api/v1/agency/strategies/{id}` - Get strategy by ID
+1. Confirm `GET https://<render-service>.onrender.com/health` returns HTTP 200
+   and `{"status":"ok"}`.
+2. Confirm the Render logs show the backend started with the configured port.
+3. Confirm migrations completed successfully against the intended PostgreSQL
+   database and that existing rows remain present.
+4. Set `NEXT_PUBLIC_API_URL` in Vercel, build and deploy the frontend, then
+   verify login and authenticated API requests from the deployed origin.
+5. Confirm the deployed browser origin exactly matches an entry in
+   `CORS_ORIGINS`.
+6. If using FreeLLMAPI directly, verify provider credentials and endpoint from
+   the deployed backend without logging the API key.
 
-### Analytics
-- `GET /api/v1/analytics/summary` - KPI summary (requires auth)
-- `GET /api/v1/analytics/kpis` - KPI details (requires auth)
-- `GET /api/v1/analytics/strategies` - Strategy metrics (requires auth)
+## Current provider integration note
 
-### Approvals
-- `GET /api/v1/approvals/pending` - List pending approvals (requires auth)
-- `POST /api/v1/approvals/{id}/approve` - Approve request (requires auth)
-- `POST /api/v1/approvals/{id}/reject` - Reject request (requires auth)
-
-## Security
-
-### JWT Configuration
-- Algorithm: HS256
-- Token expiration: 7 days (604800 seconds)
-- Secret key: Must be set via SECRET_KEY environment variable
-- Never expose JWT secrets in frontend code or client-side storage
-
-### CORS
-- Development: Allow localhost:3001 and localhost:8000
-- Production: Configure via CORS_ORIGINS environment variable
-- Credentials: Support cookies and authorization headers
-
-### Data Ownership
-- All queries scope results to authenticated user
-- Client ownership validated via user_id foreign key
-- Strategies and executions belong to authenticated user's clients
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Database connection errors**
-   - Verify DATABASE_URL format
-   - Ensure PostgreSQL is running and accessible
-   - Check alembic migration version
-
-2. **LLM provider errors**
-   - Validate FREELLMAPI_BASE_URL and FREELLMAPI_API_KEY
-   - Ensure endpoint is reachable from deployment environment
-   - Check token usage and cost tracking
-
-3. **CORS errors**
-   - Verify CORS_ORIGINS includes correct frontend URL
-   - Ensure credentials are supported
-
-4. **Authentication failures**
-   - Check SECRET_KEY is consistent between .env and code
-   - Verify JWT token format in Authorization header
-   - Ensure user exists in database
-
-### Logs
-- Backend: Render dashboard logs or `tail -f logs.txt`
-- Frontend: Vercel dashboard or `npm run dev` console
-- Database: Alembic migration output
-
-## License
-AgentFlow AI - Proprietary software. All rights reserved.
+`/agency/workflow/run` runs the Research, Strategy, Content, and QA steps through
+the OpenAI-compatible FreeLLMAPI chat completion endpoint when
+`WORKFLOW_AI_MODE=live`. Each step validates the JSON content against the
+existing workflow fields. Missing credentials, provider errors, or malformed
+responses return HTTP 503; the production path does not fall back to mock
+results. In development, set `WORKFLOW_AI_MODE=mock` to opt into the existing
+deterministic agents. Live AI use still requires valid provider credentials
+and has not been verified against the external service.

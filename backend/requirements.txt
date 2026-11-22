@@ -8,6 +8,8 @@ pydantic-settings
 python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
+httpx
+python-dotenv
 langgraph
 langchain
 langchain-openai

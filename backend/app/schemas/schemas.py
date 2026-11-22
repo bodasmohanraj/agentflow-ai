@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, constr
+from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -51,3 +51,31 @@ class WorkflowTrigger(BaseModel):
     client_id: int
     service_requested: str
     target_topic: Optional[str] = ""
+
+
+class AnalyticsSummary(BaseModel):
+    total_clients: int
+    total_projects: int
+    active_projects: int
+    completed_projects: int
+    total_strategies: int
+    total_agent_executions: int
+    successful_executions: int
+    failed_executions: int
+    pending_approvals: int
+
+
+class KPIDashboard(BaseModel):
+    client_growth_last_30d: float
+    agent_execution_trend: float
+    project_status_distribution: Dict[str, int]
+    top_clients: List[Dict[str, Any]]
+    success_count: int
+    failure_count: int
+
+
+class StrategySummary(BaseModel):
+    id: int
+    title: str
+    client_name: str
+    created_at: Optional[str] = None

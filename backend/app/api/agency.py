@@ -1,6 +1,9 @@
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 from typing import List
 
 from backend.app.db.session import get_db
@@ -16,11 +19,16 @@ from backend.app.schemas.schemas import (
     ClientCreate,
     ClientResponse,
     WorkflowTrigger,
+    AnalyticsSummary,
+    KPIDashboard,
+    StrategySummary,
 )
-from backend.app.agents.workflow import SupervisorAgent
+from backend.app.agents.workflow import SupervisorAgent, WorkflowConfigurationError
+from backend.app.agents.llm_provider import LLMProviderError
 from backend.app.core.dependencies import get_current_user
 
 router = APIRouter(prefix="/agency", tags=["agency"])
+logger = logging.getLogger(__name__)
 
 
 def is_admin(user: User) -> bool:
@@ -149,13 +157,16 @@ def run_workflow(
         "marketing_goals": client.marketing_goals,
     }
 
-    supervisor = SupervisorAgent()
-
-    res = supervisor.execute_workflow(
-        client_info,
-        payload.service_requested,
-        payload.target_topic or "",
-    )
+    try:
+        supervisor = SupervisorAgent()
+        res = supervisor.execute_workflow(
+            client_info,
+            payload.service_requested,
+            payload.target_topic or "",
+        )
+    except (LLMProviderError, WorkflowConfigurationError) as exc:
+        logger.error("Workflow unavailable: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Workflow is temporarily unavailable") from exc
 
     log = AgentExecutionLog(
         agent_name="SupervisorAgent",

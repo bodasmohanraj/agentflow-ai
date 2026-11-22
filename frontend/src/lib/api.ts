@@ -1,6 +1,10 @@
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1'
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '')
+const API_URL = configuredApiUrl
+  ? configuredApiUrl.endsWith('/api/v1')
+    ? configuredApiUrl
+    : `${configuredApiUrl}/api/v1`
+  : 'http://127.0.0.1:8000/api/v1'
 
 const TOKEN_KEY = 'agentflow_access_token'
 

@@ -34,6 +34,7 @@ class Client(Base):
     social_media_links = Column(JSON, nullable=True)
     user_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    strategies = relationship("Strategy", order_by="Strategy.id", back_populates="client")
 
 class Project(Base):
     __tablename__ = "projects"
@@ -90,6 +91,3 @@ class Strategy(Base):
 
     # Relationship
     client = relationship("Client", back_populates="strategies")
-
-# Relationship to strategies
-strategies = relationship("Strategy", order_by="Strategy.id", back_populates="client")
